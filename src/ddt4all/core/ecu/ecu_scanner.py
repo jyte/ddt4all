@@ -3,7 +3,6 @@ from ddt4all.core.ecu.ecu_database import (
     EcuDatabase,
     doip_addressing
 )
-from ddt4all.core.ecu.ecu_device import DeviceManager
 from ddt4all.core.ecu.ecu_ident import EcuIdent
 import ddt4all.core.elm.elm as elm
 import ddt4all.options as options
@@ -277,7 +276,7 @@ class EcuScanner:
             # Use integrated DeviceManager for enhanced features
             if hasattr(options, 'elm') and options.elm:
                 # Initialize device with enhanced features
-                DeviceManager.initialize_device(options.elm)
+                elm.DeviceManager.initialize_device(options.elm)
             
             options.elm.init_can()
 
@@ -342,7 +341,7 @@ class EcuScanner:
             # Use integrated DeviceManager for enhanced features
             if hasattr(options, 'elm') and options.elm:
                 # Initialize device with enhanced features
-                DeviceManager.initialize_device(options.elm)
+                elm.DeviceManager.initialize_device(options.elm)
 
             options.elm.init_iso()
 
