@@ -52,6 +52,16 @@ skip_covered = true
 source = ["ddt4all"]
 branch = true
 
+[tool.ruff]
+target-version = "py38"
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "UP",
+    "FA",
+]
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
