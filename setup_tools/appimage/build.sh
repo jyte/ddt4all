@@ -6,19 +6,15 @@ ARCH="${2:-${ARCH:-x86_64}}"
 
 case "$ARCH" in
   x86_64|amd64)
-    LDA_ARCH="x86_64"
-    PLUGIN_ARCH="x86_64"
     TOOL_ARCH="x86_64"
     OUTPUT_ARCH="x86_64"
     APPIMAGE_ARCH="x86_64"
-    LDA_RELEASE="continuous" ;;
+    ;;
   x86_32|i686|i386)
-    LDA_ARCH="i386"
-    PLUGIN_ARCH="i386"
     TOOL_ARCH="i686"
     OUTPUT_ARCH="x86_32"
     APPIMAGE_ARCH="x86"
-    LDA_RELEASE="1-alpha-20251107-1" ;;
+    ;;
   *)
     echo "ERROR: unsupported ARCH '$ARCH' (use x86_64 or x86_32)"
     exit 1 ;;
@@ -101,90 +97,112 @@ exec "\$APPDIR/usr/bin/python3" -m ddt4all "\$@"
 APPRUN
 chmod +x "$APPDIR/AppRun"
 
-# --- Télécharger les outils ---
+# --- Télécharger appimagetool ---
 mkdir -p "$TOOLSDIR"
 cd "$TOOLSDIR"
 
-LDA_FILE="linuxdeploy-${LDA_ARCH}.AppImage"
-PLUGIN_FILE="linuxdeploy-plugin-qt-${PLUGIN_ARCH}.AppImage"
 TOOL_FILE="appimagetool-${TOOL_ARCH}.AppImage"
-
-if [ ! -f "$LDA_FILE" ]; then
-  wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/${LDA_RELEASE}/linuxdeploy-${LDA_ARCH}.AppImage" -O "$LDA_FILE"
-fi
-if [ ! -f "$PLUGIN_FILE" ]; then
-  wget -q "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/${PLUGIN_FILE}" -O "$PLUGIN_FILE"
-fi
 if [ ! -f "$TOOL_FILE" ]; then
   wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/${TOOL_FILE}" -O "$TOOL_FILE"
 fi
+chmod +x "$TOOL_FILE"
 
-chmod +x *.AppImage
+# Extraire appimagetool (évite FUSE)
+"$TOOLSDIR/$TOOL_FILE" --appimage-extract 2>/dev/null || true
+if [ -d squashfs-root ]; then
+  mv squashfs-root "$TOOLSDIR/appimagetool-${TOOL_ARCH}"
+fi
 
 cd "$ROOT"
 
 # --- Bundler Qt5 ---
 echo "=== Bundling Qt5 ==="
-for f in "$TOOLSDIR"/*.AppImage; do
-  bn="$(basename "$f" .AppImage)"
-  out="$TOOLSDIR/$bn"
-  if [ ! -d "$out" ]; then
-    (cd "$TOOLSDIR" && "$f" --appimage-extract && mv squashfs-root "$bn") || true
-  fi
-done
 
-# Linuxdeploy cherche les plugins dans son répertoire plugins/
-LDA_DIR="$TOOLSDIR/linuxdeploy-${LDA_ARCH}"
-PLUGIN_DIR="$TOOLSDIR/linuxdeploy-plugin-qt-${PLUGIN_ARCH}"
-if [ -x "$PLUGIN_DIR/AppRun" ] && [ -d "$LDA_DIR/plugins" ]; then
-  ln -sfT "$PLUGIN_DIR" "$LDA_DIR/plugins/linuxdeploy-plugin-qt"
+if [ "$TOOL_ARCH" = "i686" ]; then
+  # Mode 32-bit : copier les .so Qt5 via ldd
+  echo "Bundling Qt5 via ldd..."
+
+  # Copier toutes les dépendances des .so PyQt5
+  find "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5" \
+    -name "*.so" -o -name "*.abi3.so" 2>/dev/null | \
+  while read f; do
+    ldd "$f" 2>/dev/null | grep "=> /" | awk '{print $3}' | \
+    while read lib; do
+      dest="$APPDIR/usr/lib/$(basename "$lib")"
+      [ -f "$dest" ] || cp -L "$lib" "$dest" 2>/dev/null || true
+    done
+  done
+
+  # Copier les plugins Qt5 (platforms, imageformats, etc.)
+  QT5_PLUGINS="/usr/lib/i386-linux-gnu/qt5/plugins"
+  if [ -d "$QT5_PLUGINS" ]; then
+    mkdir -p "$APPDIR/usr/plugins"
+    cp -r "$QT5_PLUGINS"/* "$APPDIR/usr/plugins/" 2>/dev/null || true
+  fi
+
+  # Nettoyer l'existant
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml" 2>/dev/null || true
+
+else
+  # Mode 64-bit : utiliser linuxdeploy
+  if [ ! -f linuxdeploy-x86_64.AppImage ]; then
+    wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" \
+      -O linuxdeploy-x86_64.AppImage
+  fi
+  if [ ! -f linuxdeploy-plugin-qt-x86_64.AppImage ]; then
+    wget -q "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage" \
+      -O linuxdeploy-plugin-qt-x86_64.AppImage
+  fi
+  chmod +x *.AppImage
+
+  for f in "$TOOLSDIR"/*.AppImage; do
+    bn="$(basename "$f" .AppImage)"
+    out="$TOOLSDIR/$bn"
+    if [ ! -d "$out" ]; then
+      (cd "$TOOLSDIR" && "$f" --appimage-extract && mv squashfs-root "$bn") || true
+    fi
+  done
+
+  # Nettoyer les plugins QML non essentiels
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/lottieqt" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/sharedimage" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/wavefrontmesh" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/QtQuick/Pdf" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/QtQuick/Scene2D" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/QtQuick/Particles.2" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/QtQuick/PrivateWidgets" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/QtQuick/Extras" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt3D" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/geometryloaders" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/sceneparsers" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/renderplugins" 2>/dev/null || true
+  rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/imageformats/libqpdf.so" 2>/dev/null || true
+  rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/renderers/libopenglrenderer.so" 2>/dev/null || true
+  rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/sqldrivers/libqsqlodbc.so" 2>/dev/null || true
+  rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/sqldrivers/libqsqlpsql.so" 2>/dev/null || true
+  rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/texttospeech/libqtexttospeech_speechd.so" 2>/dev/null || true
+
+  LDA_BIN="$TOOLSDIR/linuxdeploy-x86_64/AppRun"
+  [ -x "$LDA_BIN" ] || LDA_BIN="$TOOLSDIR/linuxdeploy-x86_64.AppImage"
+  LD_LIBRARY_PATH="" "$LDA_BIN" --appdir "$APPDIR" --plugin qt --output appimage 2>&1 || \
+    echo "WARNING: linuxdeploy a échoué"
 fi
 
-# Nettoyer les plugins QML non essentiels
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/lottieqt" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/sharedimage" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/wavefrontmesh" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/QtQuick/Pdf" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/QtQuick/Scene2D" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/QtQuick/Particles.2" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/QtQuick/PrivateWidgets" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/QtQuick/Extras" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt3D" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/geometryloaders" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/sceneparsers" 2>/dev/null || true
-rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/renderplugins" 2>/dev/null || true
-rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/imageformats/libqpdf.so" 2>/dev/null || true
-rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/renderers/libopenglrenderer.so" 2>/dev/null || true
-rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/sqldrivers/libqsqlodbc.so" 2>/dev/null || true
-rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/sqldrivers/libqsqlpsql.so" 2>/dev/null || true
-rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/texttospeech/libqtexttospeech_speechd.so" 2>/dev/null || true
-
-LDA_BIN="linuxdeploy-${LDA_ARCH}/AppRun"
-if [ ! -x "$TOOLSDIR/$LDA_BIN" ]; then
-  LDA_BIN="linuxdeploy-${LDA_ARCH}.AppImage"
-fi
-
-# Lancer linuxdeploy depuis $TOOLSDIR pour qu'il trouve le plugin-qt
-(cd "$TOOLSDIR" && LD_LIBRARY_PATH="" ./$LDA_BIN --appdir "$APPDIR" --plugin qt --output appimage) 2>&1 || {
-  cd "$ROOT"
-  echo "WARNING: linuxdeploy --output appimage a échoué"
-
-  APPIMAGE="ddt4all-${VERSION}-${OUTPUT_ARCH}.AppImage"
-  if [ -x "$TOOLSDIR/appimagetool-${TOOL_ARCH}/AppRun" ]; then
-    ARCH="$APPIMAGE_ARCH" "$TOOLSDIR/appimagetool-${TOOL_ARCH}/AppRun" "$APPDIR" "$ROOT/$APPIMAGE"
-  elif [ -x "$TOOLSDIR/${TOOL_FILE}" ]; then
-    cd "$TOOLSDIR" && ARCH="$APPIMAGE_ARCH" "./${TOOL_FILE}" "$APPDIR" "$ROOT/$APPIMAGE" && cd "$ROOT"
-  else
-    echo "ERROR: aucun outil disponible pour créer l'AppImage"
-    exit 1
-  fi
-}
-
-# Si linuxdeploy --output appimage a créé l'AppImage, on la renomme
+# --- Créer l'AppImage ---
+echo "=== Creating AppImage ==="
 APPIMAGE="ddt4all-${VERSION}-${OUTPUT_ARCH}.AppImage"
+
+if [ -x "$TOOLSDIR/appimagetool-${TOOL_ARCH}/AppRun" ]; then
+  ARCH="$APPIMAGE_ARCH" "$TOOLSDIR/appimagetool-${TOOL_ARCH}/AppRun" "$APPDIR" "$ROOT/$APPIMAGE"
+elif [ -f "$TOOLSDIR/$TOOL_FILE" ]; then
+  cd "$TOOLSDIR" && ARCH="$APPIMAGE_ARCH" "./$TOOL_FILE" "$APPDIR" "$ROOT/$APPIMAGE" || true
+  cd "$ROOT"
+fi
+
+# Si l'AppImage n'a pas été créée, chercher un fichier .AppImage
 if [ ! -f "$ROOT/$APPIMAGE" ]; then
   found="$(find "$ROOT" -maxdepth 1 -name '*.AppImage' 2>/dev/null | head -1)"
-  if [ -n "$found" ]; then
+  if [ -n "$found" ] && [ "$found" != "$ROOT/$APPIMAGE" ]; then
     mv "$found" "$ROOT/$APPIMAGE"
   fi
 fi
