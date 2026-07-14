@@ -133,11 +133,11 @@ for f in "$TOOLSDIR"/*.AppImage; do
   fi
 done
 
-# Linuxdeploy cherche le plugin-qt dans son propre répertoire usr/bin/
+# Linuxdeploy cherche les plugins dans son répertoire plugins/
 LDA_DIR="$TOOLSDIR/linuxdeploy-${LDA_ARCH}"
 PLUGIN_DIR="$TOOLSDIR/linuxdeploy-plugin-qt-${PLUGIN_ARCH}"
-if [ -x "$PLUGIN_DIR/AppRun" ] && [ -d "$LDA_DIR/usr/bin" ]; then
-  ln -sf "$PLUGIN_DIR/AppRun" "$LDA_DIR/usr/bin/linuxdeploy-plugin-qt"
+if [ -x "$PLUGIN_DIR/AppRun" ] && [ -d "$LDA_DIR/plugins" ]; then
+  ln -sfT "$PLUGIN_DIR" "$LDA_DIR/plugins/linuxdeploy-plugin-qt"
 fi
 
 # Nettoyer les plugins QML non essentiels
