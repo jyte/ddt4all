@@ -2,6 +2,28 @@
 set -e
 
 VERSION="${1:-$(git describe --tags --always 2>/dev/null || echo "dev")}"
+ARCH="${2:-${ARCH:-x86_64}}"
+
+case "$ARCH" in
+  x86_64|amd64)
+    LDA_ARCH="x86_64"
+    PLUGIN_ARCH="x86_64"
+    TOOL_ARCH="x86_64"
+    OUTPUT_ARCH="x86_64"
+    APPIMAGE_ARCH="x86_64"
+    LDA_RELEASE="continuous" ;;
+  x86_32|i686|i386)
+    LDA_ARCH="i386"
+    PLUGIN_ARCH="i386"
+    TOOL_ARCH="i686"
+    OUTPUT_ARCH="x86_32"
+    APPIMAGE_ARCH="x86"
+    LDA_RELEASE="1-alpha-20251107-1" ;;
+  *)
+    echo "ERROR: unsupported ARCH '$ARCH' (use x86_64 or x86_32)"
+    exit 1 ;;
+esac
+
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 APPDIR="$ROOT/build/AppDir"
 TOOLSDIR="$ROOT/build/tools"
@@ -13,8 +35,9 @@ PYTHON_STDLIB="$(dirname "$PYTHON_BIN")/../lib/python${PYTHON_VER}"
 
 echo "=== Build AppImage ==="
 echo "Version:   $VERSION"
+echo "Arch:      $ARCH -> ${OUTPUT_ARCH}"
 echo "Python:    $PYTHON_BIN ($PYTHON_VER)"
-echo "Output:    ddt4all-${VERSION}-x86_64.AppImage"
+echo "Output:    ddt4all-${VERSION}-${OUTPUT_ARCH}.AppImage"
 
 rm -rf "$APPDIR" "$TOOLSDIR"
 mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/lib" \
@@ -32,9 +55,7 @@ if [ -f "$PYTHON_LIB" ]; then
 fi
 
 # --- stdlib + venv site-packages ---
-# D'abord copier le site-packages du venv (contient PyQt5, pyserial, etc.)
 cp -r "$PYTHON_STDLIB/site-packages" "$APPDIR/usr/lib/python${PYTHON_VER}/"
-# Puis la stdlib système (encodings, os.py, etc.) depuis l'interpréteur courant
 STDLIB="$(python3 -c "import os; print(os.path.dirname(os.__file__))")"
 for item in "$STDLIB"/*; do
   bn="$(basename "$item")"
@@ -43,8 +64,9 @@ for item in "$STDLIB"/*; do
   fi
 done
 
-# --- Installer ddt4all (écrase l'édition éditable du venv) ---
-pip install --upgrade --no-deps --force-reinstall --target "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages" .
+# --- Installer ddt4all ---
+pip install --upgrade --no-deps --force-reinstall \
+  --target "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages" .
 
 # --- Icône ---
 cp resources/icons/obd.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/ddt4all.png"
@@ -83,14 +105,18 @@ chmod +x "$APPDIR/AppRun"
 mkdir -p "$TOOLSDIR"
 cd "$TOOLSDIR"
 
-if [ ! -f linuxdeploy-x86_64.AppImage ]; then
-  wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" -O linuxdeploy-x86_64.AppImage
+LDA_FILE="linuxdeploy-${LDA_ARCH}.AppImage"
+PLUGIN_FILE="linuxdeploy-plugin-qt-${PLUGIN_ARCH}.AppImage"
+TOOL_FILE="appimagetool-${TOOL_ARCH}.AppImage"
+
+if [ ! -f "$LDA_FILE" ]; then
+  wget -q "https://github.com/linuxdeploy/linuxdeploy/releases/download/${LDA_RELEASE}/linuxdeploy-${LDA_ARCH}.AppImage" -O "$LDA_FILE"
 fi
-if [ ! -f linuxdeploy-plugin-qt-x86_64.AppImage ]; then
-  wget -q "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage" -O linuxdeploy-plugin-qt-x86_64.AppImage
+if [ ! -f "$PLUGIN_FILE" ]; then
+  wget -q "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/${PLUGIN_FILE}" -O "$PLUGIN_FILE"
 fi
-if [ ! -f appimagetool-x86_64.AppImage ]; then
-  wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage" -O appimagetool-x86_64.AppImage
+if [ ! -f "$TOOL_FILE" ]; then
+  wget -q "https://github.com/AppImage/appimagetool/releases/download/continuous/${TOOL_FILE}" -O "$TOOL_FILE"
 fi
 
 chmod +x *.AppImage
@@ -99,7 +125,6 @@ cd "$ROOT"
 
 # --- Bundler Qt5 ---
 echo "=== Bundling Qt5 ==="
-# Extraire les AppImage tools pour éviter FUSE
 for f in "$TOOLSDIR"/*.AppImage; do
   bn="$(basename "$f" .AppImage)"
   out="$TOOLSDIR/$bn"
@@ -108,7 +133,7 @@ for f in "$TOOLSDIR"/*.AppImage; do
   fi
 done
 
-# Nettoyer les plugins QML non essentiels pour éviter les erreurs Qt5 manquants
+# Nettoyer les plugins QML non essentiels
 rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/lottieqt" 2>/dev/null || true
 rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/sharedimage" 2>/dev/null || true
 rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/wavefrontmesh" 2>/dev/null || true
@@ -127,24 +152,34 @@ rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/sqldr
 rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/sqldrivers/libqsqlpsql.so" 2>/dev/null || true
 rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/texttospeech/libqtexttospeech_speechd.so" 2>/dev/null || true
 
-LDA="$TOOLSDIR/linuxdeploy-x86_64/AppRun"
-if [ ! -x "$LDA" ]; then
-  LDA="$TOOLSDIR/linuxdeploy-x86_64.AppImage"
+LDA_BIN="$TOOLSDIR/linuxdeploy-${LDA_ARCH}/AppRun"
+if [ ! -x "$LDA_BIN" ]; then
+  LDA_BIN="$TOOLSDIR/linuxdeploy-${LDA_ARCH}.AppImage"
 fi
 
-LD_LIBRARY_PATH="" "$LDA" --appdir "$APPDIR" --plugin qt 2>&1 || {
-  echo "WARNING: linuxdeploy-qt a échoué mais on continue"
+LD_LIBRARY_PATH="" "$LDA_BIN" --appdir "$APPDIR" --plugin qt --output appimage 2>&1 || {
+  echo "WARNING: linuxdeploy --output appimage a échoué"
+
+  APPIMAGE="ddt4all-${VERSION}-${OUTPUT_ARCH}.AppImage"
+  if [ -x "$TOOLSDIR/appimagetool-${TOOL_ARCH}/AppRun" ]; then
+    ARCH="$APPIMAGE_ARCH" "$TOOLSDIR/appimagetool-${TOOL_ARCH}/AppRun" "$APPDIR" "$ROOT/$APPIMAGE"
+  elif [ -x "$TOOLSDIR/${TOOL_FILE}" ]; then
+    cd "$TOOLSDIR" && ARCH="$APPIMAGE_ARCH" "./${TOOL_FILE}" "$APPDIR" "$ROOT/$APPIMAGE" && cd "$ROOT"
+  else
+    echo "ERROR: aucun outil disponible pour créer l'AppImage"
+    exit 1
+  fi
 }
 
-# --- Créer l'AppImage ---
-echo "=== Creating AppImage ==="
-if [ -x "$TOOLSDIR/appimagetool-x86_64/AppRun" ]; then
-  ARCH=x86_64 "$TOOLSDIR/appimagetool-x86_64/AppRun" "$APPDIR" "$ROOT/ddt4all-${VERSION}-x86_64.AppImage"
-else
-  cd "$TOOLSDIR" && ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" "$ROOT/ddt4all-${VERSION}-x86_64.AppImage"
-  cd "$ROOT"
+# Si linuxdeploy --output appimage a créé l'AppImage, on la renomme
+APPIMAGE="ddt4all-${VERSION}-${OUTPUT_ARCH}.AppImage"
+if [ ! -f "$ROOT/$APPIMAGE" ]; then
+  found="$(find "$ROOT" -maxdepth 1 -name '*.AppImage' 2>/dev/null | head -1)"
+  if [ -n "$found" ]; then
+    mv "$found" "$ROOT/$APPIMAGE"
+  fi
 fi
 
 echo ""
-echo "=== Done: ddt4all-${VERSION}-x86_64.AppImage ==="
-ls -lh "ddt4all-${VERSION}-x86_64.AppImage"
+echo "=== Done: $APPIMAGE ==="
+ls -lh "$ROOT/$APPIMAGE"
