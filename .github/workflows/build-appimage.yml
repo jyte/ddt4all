@@ -50,6 +50,8 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: i386/debian:12
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
 
     steps:
       - name: Checkout
@@ -75,13 +77,13 @@ jobs:
         run: |
           . /opt/venv/bin/activate
           bash setup_tools/appimage/build.sh "${GITHUB_REF_NAME}" x86_32
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v4
         with:
           name: ddt4all-x86_32.AppImage
           path: ddt4all-*-x86_32.AppImage
           if-no-files-found: error
       - if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           files: ddt4all-*-x86_32.AppImage
         env:
