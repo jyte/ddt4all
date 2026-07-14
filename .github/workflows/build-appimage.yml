@@ -81,7 +81,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          apt-get install -y zip
+          apt-get install -y zip curl
           zip -j artifact.zip ddt4all-*-x86_32.AppImage
           curl -s -X POST \
             -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -93,5 +93,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          apt-get install -y gh
+          apt-get install -y gh curl
           gh release upload "${{ github.ref_name }}" ddt4all-*-x86_32.AppImage --clobber
