@@ -11,48 +11,78 @@ on:
     types: [published]
 
 jobs:
-  appimage:
-    name: Linux AppImage
+  appimage-x86_64:
+    name: Linux AppImage (64-bit)
     runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v7
-
       - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
           cache: "pip"
-
       - name: Install system deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libxcb-xinerama0 \
-            libgl1 \
-            libfuse2 \
-            libbluetooth-dev
-
+          sudo apt-get install -y libxcb-xinerama0 libgl1 libfuse2 libbluetooth-dev
       - name: Install Python deps
         run: |
           pip install --upgrade pip
           pip install -e ".[can,network,bluetooth]"
-
       - name: Build AppImage
         run: |
           bash setup_tools/appimage/build.sh "${GITHUB_REF_NAME}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7
         with:
           name: ddt4all-x86_64.AppImage
-          path: ddt4all-*.AppImage
+          path: ddt4all-*-x86_64.AppImage
           if-no-files-found: error
-
-      - name: Upload to Release
-        if: github.ref_type == 'tag'
+      - if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v3
         with:
-          files: ddt4all-*.AppImage
+          files: ddt4all-*-x86_64.AppImage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  appimage-x86_32:
+    name: Linux AppImage (32-bit)
+    runs-on: ubuntu-24.04
+    container:
+      image: i386/debian:12
+
+    steps:
+      - name: Checkout
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          apt-get update && apt-get install -y git
+          git clone --depth 1 --branch "${{ github.ref_name }}" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" .
+      - name: Install system deps
+        run: |
+          apt-get install -y python3 python3-pip python3-venv python3-pyqt5 \
+            python3-serial python3-usb python3-crcmod \
+            libxcb-xinerama0 libgl1 libfuse2 squashfs-tools wget
+      - name: Install Python deps
+        run: |
+          python3 -m venv /opt/venv
+          . /opt/venv/bin/activate
+          pip install --upgrade pip
+          pip install --no-deps polib platformdirs
+          pip install --no-deps -e ".[can,network,bluetooth]"
+      - name: Build AppImage
+        run: |
+          . /opt/venv/bin/activate
+          bash setup_tools/appimage/build.sh "${GITHUB_REF_NAME}" x86_32
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ddt4all-x86_32.AppImage
+          path: ddt4all-*-x86_32.AppImage
+          if-no-files-found: error
+      - if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ddt4all-*-x86_32.AppImage
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
