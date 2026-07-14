@@ -133,6 +133,12 @@ for f in "$TOOLSDIR"/*.AppImage; do
   fi
 done
 
+# Linuxdeploy cherche le plugin-qt comme exécutable, pas comme dossier
+PLUGIN_DIR="$TOOLSDIR/linuxdeploy-plugin-qt-${PLUGIN_ARCH}"
+if [ -x "$PLUGIN_DIR/AppRun" ] && [ ! -x "$PLUGIN_DIR/linuxdeploy-plugin-qt-${PLUGIN_ARCH}" ]; then
+  ln -sf "AppRun" "$PLUGIN_DIR/linuxdeploy-plugin-qt-${PLUGIN_ARCH}"
+fi
+
 # Nettoyer les plugins QML non essentiels
 rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/lottieqt" 2>/dev/null || true
 rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml/Qt/labs/sharedimage" 2>/dev/null || true
