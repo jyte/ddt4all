@@ -119,29 +119,48 @@ cd "$ROOT"
 echo "=== Bundling Qt5 ==="
 
 if [ "$TOOL_ARCH" = "i686" ]; then
-  # Mode 32-bit : copier les .so Qt5 via ldd
-  echo "Bundling Qt5 via ldd..."
+  # Mode 32-bit : bundler Qt5 manuellement (pas de linuxdeploy en i686)
+  echo "Bundling Qt5 (manuel)..."
 
-  # Copier toutes les dépendances des .so PyQt5
-  find "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5" \
-    -name "*.so" -o -name "*.abi3.so" 2>/dev/null | \
-  while read f; do
-    ldd "$f" 2>/dev/null | grep "=> /" | awk '{print $3}' | \
-    while read lib; do
-      dest="$APPDIR/usr/lib/$(basename "$lib")"
-      [ -f "$dest" ] || cp -L "$lib" "$dest" 2>/dev/null || true
-    done
-  done
-
-  # Copier les plugins Qt5 (platforms, imageformats, etc.)
+  # 1. Copier les plugins Qt5
   QT5_PLUGINS="/usr/lib/i386-linux-gnu/qt5/plugins"
   if [ -d "$QT5_PLUGINS" ]; then
     mkdir -p "$APPDIR/usr/plugins"
     cp -r "$QT5_PLUGINS"/* "$APPDIR/usr/plugins/" 2>/dev/null || true
   fi
 
-  # Nettoyer l'existant
-  rm -rf "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/qml" 2>/dev/null || true
+  # 2. Copier les dossiers Qt5 supplémentaires
+  for dir in translations resources qml; do
+    src="/usr/lib/i386-linux-gnu/qt5/$dir"
+    if [ -d "$src" ]; then
+      cp -r "$src" "$APPDIR/usr/$dir/" 2>/dev/null || true
+    fi
+  done
+
+  # 3. Boucle ldd récursive jusqu'à stabilisation des dépendances
+  prev=0
+  while true; do
+    count=$(find "$APPDIR/usr/lib" -maxdepth 1 -name '*.so*' | wc -l)
+    [ "$count" = "$prev" ] && break
+    prev=$count
+    find "$APPDIR/usr/lib" -maxdepth 1 -name '*.so*' -exec ldd {} \; 2>/dev/null \
+      | grep "=> /" | awk '{print $3}' | sort -u \
+      | while read lib; do
+          dest="$APPDIR/usr/lib/$(basename "$lib")"
+          [ -f "$dest" ] || cp -L "$lib" "$dest" 2>/dev/null || true
+        done
+  done
+
+  # Nettoyer les qml non essentiels
+  rm -rf "$APPDIR/usr/qml/Qt/labs/lottieqt" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/qml/QtQuick/Pdf" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/qml/QtQuick/Scene2D" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/qml/QtQuick/Particles.2" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/qml/QtQuick/PrivateWidgets" 2>/dev/null || true
+  rm -rf "$APPDIR/usr/qml/Qt3D" 2>/dev/null || true
+  rm -f "$APPDIR/usr/plugins/imageformats/libqpdf.so" 2>/dev/null || true
+  rm -f "$APPDIR/usr/plugins/sqldrivers/libqsqlodbc.so" 2>/dev/null || true
+  rm -f "$APPDIR/usr/plugins/sqldrivers/libqsqlpsql.so" 2>/dev/null || true
 
 else
   # Mode 64-bit : utiliser linuxdeploy
