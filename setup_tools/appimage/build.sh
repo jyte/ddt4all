@@ -159,12 +159,14 @@ rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/sqldr
 rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/sqldrivers/libqsqlpsql.so" 2>/dev/null || true
 rm -f "$APPDIR/usr/lib/python${PYTHON_VER}/site-packages/PyQt5/Qt5/plugins/texttospeech/libqtexttospeech_speechd.so" 2>/dev/null || true
 
-LDA_BIN="$TOOLSDIR/linuxdeploy-${LDA_ARCH}/AppRun"
-if [ ! -x "$LDA_BIN" ]; then
-  LDA_BIN="$TOOLSDIR/linuxdeploy-${LDA_ARCH}.AppImage"
+LDA_BIN="linuxdeploy-${LDA_ARCH}/AppRun"
+if [ ! -x "$TOOLSDIR/$LDA_BIN" ]; then
+  LDA_BIN="linuxdeploy-${LDA_ARCH}.AppImage"
 fi
 
-LD_LIBRARY_PATH="" "$LDA_BIN" --appdir "$APPDIR" --plugin qt --output appimage 2>&1 || {
+# Lancer linuxdeploy depuis $TOOLSDIR pour qu'il trouve le plugin-qt
+(cd "$TOOLSDIR" && LD_LIBRARY_PATH="" ./$LDA_BIN --appdir "$APPDIR" --plugin qt --output appimage) 2>&1 || {
+  cd "$ROOT"
   echo "WARNING: linuxdeploy --output appimage a échoué"
 
   APPIMAGE="ddt4all-${VERSION}-${OUTPUT_ARCH}.AppImage"
